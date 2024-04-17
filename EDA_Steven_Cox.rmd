@@ -1,0 +1,629 @@
+---
+title: "Project 2 Predicting Salary EDA Adult Dataset"
+author: "Steven Cox"
+date: "`r Sys.Date()`"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+# Required Libraries
+library(DataExplorer)
+library(tidyverse)
+library(dplyr)
+library(lmtest)
+library(car)
+library(corrplot)
+library(jtools)
+library(sjPlot)
+library(ResourceSelection)
+library(ROCR)
+library(pROC)
+library(ggplot2)
+library(naniar)
+library(tidyverse)
+library(readr)
+library(dplyr)
+library(ggplot2)
+
+library(data.table)
+library(funModeling)
+library(DataExplorer)
+library(caTools)
+# library(rstudioapi)
+
+
+# set working directory
+# current_script_path <- getSourceEditorContext()$path
+# setwd(dirname(current_script_path))
+# rm(list = ls())
+```
+
+## Section 1: Loading the Data
+
+```{r load-data, echo=FALSE, message=FALSE}
+adult <- read.csv("dataset/adult.data", header = FALSE, na.strings = "?")
+
+colnames(adult) <-
+  column_names <-
+  c(
+    "age",
+    "workclass",
+    "fnlwgt",
+    "education",
+    "education_num",
+    "marital_status",
+    "occupation",
+    "relationship",
+    "race",
+    "sex",
+    "capital_gain",
+    "capital_loss",
+    "hours_per_week",
+    "native_country",
+    "income"
+  )
+colnames(adult) <- column_names
+adult
+
+
+# Trim whitespace from all character columns
+adult <- data.frame(lapply(adult, function(x) {
+  if (is.character(x)) trimws(x) else x
+}))
+
+# Replace "?" with NA in all columns
+adult <- data.frame(lapply(adult, function(x) {
+  if (is.character(x)) gsub("^\\?$", NA, x) else x
+}))
+
+# Display the first few rows
+head(adult)
+glimpse(adult)
+
+adult$income.bin <- ifelse(adult$income == ">50K", 1, 0)
+adult$income <- as.factor(adult$income)
+```
+
+## Section 2: Summary Analysis
+
+```{r summary-analysis}
+# Basic summary
+summary(adult)
+
+# Basic descriptive statistics for numerical features
+sapply(adult[sapply(adult, is.numeric)], summary)
+
+# Summary Missing Data
+sapply(adult, function(x) sum(is.na(x)))
+vis_miss(adult)
+# adult <- na.omit(adult)
+
+
+# Assuming 'adult' is your dataframe
+country_counts <- adult %>%
+  group_by(native_country) %>%
+  summarise(count = n()) %>%
+  arrange(desc(count))
+print(country_counts)
+```
+
+## Section 3: Data Visualization
+
+```{r data-visualization}
+plot_bar(adult, by = "income", nrow = 4)
+plot_boxplot(adult, by = "income")
+plot_qq(adult, by = "income")
+freq(data = adult, input = column_names)
+
+# Bar Chart for Income
+ggplot(adult, aes(x = income)) +
+  geom_bar(fill = "lightblue", color = "black") +
+  ggtitle("Count of Income Levels") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Calculate the count and percentage of each income level correctly
+adult_percent <- adult %>%
+  count(income) %>%
+  mutate(perc = n / sum(n) * 100)
+
+ggplot(adult_percent, aes(x = income, y = perc, fill = income)) +
+  geom_bar(stat = "identity", color = "black") +
+  scale_fill_manual(values = c("lightblue", "lightcoral")) +
+  ggtitle("Percentage of Income Levels") +
+  xlab("Income") +
+  ylab("Percentage (%)") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+# Histogram for Age
+ggplot(adult, aes(x = age, fill = income)) +
+  geom_histogram(binwidth = 1) +
+  facet_wrap(~income) +
+  ggtitle("Age Distribution by Income") +
+  xlab("Age") +
+  ylab("Count")
+
+ggplot(adult, aes(x = age, fill = income)) +
+  geom_histogram(aes(y = ..density.. * 100), binwidth = 1, color = "black") +
+  facet_wrap(~income) +
+  scale_fill_manual(values = c("<=50K" = "lightblue", ">50K" = "lightcoral")) +
+  ggtitle("Age Distribution by Income (Percentage)") +
+  xlab("Age") +
+  ylab("Percentage (%)")
+
+
+# Histogram for Gender by Income
+ggplot(adult, aes(x = sex, fill = income)) +
+  geom_bar() +
+  scale_fill_manual(values = c("<=50K" = "lightblue", ">50K" = "lightcoral")) +
+  ggtitle("Gender Distribution by Income") +
+  xlab("Gender") +
+  ylab("Count") +
+  facet_wrap(~income)
+
+adult_gender_income_percent <- adult %>%
+  count(sex, income) %>%
+  group_by(sex) %>%
+  mutate(perc = n / sum(n) * 100)
+
+ggplot(adult_gender_income_percent, aes(x = sex, y = perc, fill = income)) +
+  geom_bar(stat = "identity", position = position_dodge(), color = "black") +
+  scale_fill_manual(values = c("<=50K" = "lightblue", ">50K" = "lightcoral")) +
+  ggtitle("Gender Distribution by Income (Percentage)") +
+  xlab("Gender") +
+  ylab("Percentage (%)") +
+  facet_wrap(~income)
+
+
+# Histogram for Hours per Week
+ggplot(adult, aes(x = hours_per_week)) +
+  geom_histogram(binwidth = 1, fill = "lightblue", color = "black") +
+  ggtitle("Distribution of Hours per Week")
+
+
+
+# Histogram for Education Number
+ggplot(adult, aes(x = education_num, fill = income)) +
+  geom_histogram(binwidth = 1, color = "black", position = "dodge") +
+  scale_fill_manual(values = c("<=50K" = "lightblue", ">50K" = "lightcoral")) +
+  ggtitle("Education Number Distribution by Income") +
+  xlab("Education Number") +
+  ylab("Count")
+
+ggplot(adult, aes(x = education_num, fill = income)) +
+  geom_histogram(aes(y = ..density.. * 100), binwidth = 1, color = "black", position = "dodge") +
+  scale_fill_manual(values = c("<=50K" = "lightblue", ">50K" = "lightcoral")) +
+  ggtitle("Education Number Distribution by Income (Percentage)") +
+  xlab("Education Number") +
+  ylab("Percentage (%)")
+
+# Bar Chart for Education with Ordered Levels
+adult$education <- factor(adult$education,
+  levels = c(
+    "Preschool", "1st-4th", "5th-6th", "7th-8th",
+    "9th", "10th", "11th", "12th", "HS-grad",
+    "Some-college", "Assoc-voc", "Assoc-acdm",
+    "Bachelors", "Masters", "Prof-school", "Doctorate"
+  ),
+  ordered = TRUE
+)
+
+ggplot(adult, aes(x = education)) +
+  geom_bar(fill = "lightblue", color = "black") +
+  ggtitle("Education Level Distribution") +
+  xlab("Education Level") +
+  ylab("Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Bar Chart for Workclass
+ggplot(adult, aes(x = workclass)) +
+  geom_bar(fill = "lightblue", color = "black") +
+  ggtitle("Workclass Distribution") +
+  xlab("Workclass") +
+  ylab("Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+# Bar Chart for Native Country
+ggplot(adult, aes(x = native_country)) +
+  geom_bar(fill = "lightblue", color = "black") +
+  ggtitle("Count per Native Country") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Bar Chart for Relationship
+ggplot(adult, aes(x = relationship, fill = income)) +
+  geom_bar(position = "dodge", color = "black") +
+  scale_fill_manual(values = c("<=50K" = "lightblue", ">50K" = "lightcoral")) +
+  ggtitle("Relationship Distribution by Income") +
+  xlab("Relationship") +
+  ylab("Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Bar Chart for Occupation
+ggplot(adult, aes(x = occupation, fill = income)) +
+  geom_bar(position = "dodge", color = "black") +
+  scale_fill_manual(values = c("<=50K" = "lightblue", ">50K" = "lightcoral")) +
+  ggtitle("Occupation Level Distribution") +
+  xlab("Occupation") +
+  ylab("Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r quick look at model}
+# library(olsrr)
+# simple.fit<-glm(income.bin~., data = adult, na.action = na.exclude)
+# summary(simple.fit)
+# ols_plot_diagnostics(simple.fit)
+# plot(simple.fit)
+```
+
+
+ADAM...curious as where the 50_or_More.csv dataset came from?  When I downloaded it, it jsut said adult.data
+
+https://archive.ics.uci.edu/ml/datasets/Adult 
+
+```{r}
+# adult<-read.csv("50_or_More.csv",stringsAsFactors = T)
+adult <- read.csv("dataset/adult.data", header = FALSE, na.strings = "?")
+
+colnames(adult) <-
+  column_names <-
+  c(
+    "age",
+    "workclass",
+    "similar_pop_count",
+    "education_level",
+    "years_education",
+    "marital_status",
+    "occupation",
+    "household_role",
+    "race",
+    "gender",
+    "capital_gain",
+    "capital_loss",
+    "hours_per_week",
+    "native_country",
+    "income"
+  )
+
+
+adult
+```
+
+```{r reduce_levels}
+# Function to recode the values with trimmed spaces
+recode_value <- function(old_level) {
+  old_level <-
+    trimws(old_level) # Trim leading and trailing whitespace
+  for (category in names(new_levels)) {
+    if (old_level %in% new_levels[[category]]) {
+      return(category)
+    }
+  }
+  return(NA) # Return NA if the education level does not match any category
+}
+
+levels(adult$workclass) <-
+  c(
+    "unemployed",
+    "FedGov",
+    "LocGov",
+    "NeverWorked",
+    "Private",
+    "SelfEmpInc",
+    "SelfEmpNotInc",
+    "StateGov"
+  )
+
+
+# The new education level categories
+new_levels <- list(
+  no_edu = c("", "Preschool"),
+  primary = c("1st-4th", "5th-6th"),
+  secondary = c("7th-8th"),
+  highsch = c("9th", "10th", "11th", "12th", "HS-grad"),
+  assoc = c("Assoc-acdm", "Assoc-voc", "Some-college"),
+  undergrad = c("Bachelors", "Prof-school"),
+  master = c("Masters"),
+  phd = c("Doctorate")
+)
+
+# Recode the education levels with the updated function
+adult$education_level <- sapply(adult$education_level, recode_value)
+
+# recreate the levels
+levels(adult$education_level) <-
+  c(
+    "no_edu",
+    "primary",
+    "secondary",
+    "highsch",
+    "assoc",
+    "undergrad",
+    "master",
+    "phd"
+  )
+
+# The new marital status categories
+new_levels <- list(
+  divorce = c("Divorced", "Separated"),
+  married = c(
+    "Married-AF-spouse",
+    "Married-civ-spouse",
+    "Married-spouse-absent"
+  ),
+  notmarried = c("", "Never-married"),
+  widowed = c("Widowed")
+)
+
+# Recode the marital statuses with the updated function
+adult$marital_status <- sapply(adult$marital_status, recode_value)
+
+# recreate the levels
+levels(adult$marital_status) <-
+  c("divorce", "married", "notmarried", "widowed")
+
+
+new_levels <- list(
+  other = c("", "?"),
+  clerical = c("Adm-clerical"),
+  midskill = c("Craft-repair", "Machine-op-inspct", "Transport-moving"),
+  lowskill = c(
+    "Handlers-cleaners",
+    "Other-service",
+    "Priv-house-serv",
+    "Armed-Forces"
+  ),
+  highskill = c(
+    "Sales",
+    "Tech-support",
+    "Protective-serv",
+    "Prof-specialty",
+    "Exec-managerial"
+  ),
+  agriculture = c("Farming-fishing")
+)
+
+
+# Recode the marital statuses with the updated function
+adult$occupation <- sapply(adult$occupation, recode_value)
+
+# recreate the levels
+levels(adult$occupation) <-
+  c(
+    "other",
+    "clerical",
+    "midskill",
+    "lowskill",
+    "highskill",
+    "agriculture"
+  )
+
+
+# Define the new levels for household_role
+new_levels <- list(
+  husband = c("Husband"),
+  wife = c("Wife"),
+  tenant = c("Not-in-family"),
+  single_occ = c("Unmarried", ""),
+  relative = c("Other-relative"),
+  depchild = c("Own-child")
+)
+
+# Recode the household_role column using the recode function
+adult$household_role <- sapply(adult$household_role, recode_value)
+
+# Convert the recoded household_role to a factor
+adult$household_role <-
+  factor(adult$household_role, levels = names(new_levels))
+
+# Define the new levels for native_country
+new_levels <- list(
+  EAsia = c(
+    "Vietnam",
+    "Laos",
+    "Cambodia",
+    "Thailand",
+    "China",
+    "Hong",
+    "Taiwan",
+    "Philippines",
+    "Japan"
+  ),
+  SAsia = c("India", "Iran"),
+  NorthAmerica = c("Canada", "Mexico", "United-States"),
+  CentrAmerica = c(
+    "Cuba",
+    "Dominican-Republic",
+    "Guatemala",
+    "Haiti",
+    "Honduras",
+    "Jamaica",
+    "Trinadad&Tobago",
+    "Nicaragua",
+    "El-Salvador",
+    "",
+    "?"
+  ),
+  SouthAmerica = c("Ecuador", "Peru", "Columbia", "South"),
+  Europe = c(
+    "France",
+    "Germany",
+    "Greece",
+    "Holand-Netherlands",
+    "Italy",
+    "Hungary",
+    "Ireland",
+    "Poland",
+    "Portugal",
+    "Scotland",
+    "England",
+    "Yugoslavia"
+  ),
+  USTerritory = c("Outlying-US(Guam-USVI-etc)", "Puerto-Rico")
+)
+
+# Recode the native_country column using the recode function
+adult$native_country <- sapply(adult$native_country, recode_value)
+
+# Convert the recoded native_country to a factor
+adult$native_country <-
+  factor(adult$native_country, levels = names(new_levels))
+levels(adult$native_country)
+
+
+# Define the new levels for income
+new_levels <- list(
+  "<=50K" = c("<=50K", ""),
+  ">50K" = c(">50K")
+)
+
+# Recode the incomer column using the recode function
+adult$income <- sapply(adult$income, recode_value)
+
+# Convert the recoded native_country to a factor
+adult$income <- factor(adult$income, levels = names(new_levels))
+levels(adult$income)
+
+# Define the new levels for gender
+new_levels <- list(
+  "female" = c("Female", ""),
+  "male" = c("Male")
+)
+
+# Recode the incomer column using the recode function
+adult$gender <- sapply(adult$gender, recode_value)
+
+# Convert the recoded native_country to a factor
+adult$gender <- factor(adult$gender, levels = names(new_levels))
+levels(adult$gender)
+
+# Define the new levels for race
+new_levels <- list(
+  other = c("Other", ""),
+  white = c("White"),
+  black = c("Black"),
+  native = c("Amer-Indian-Eskimo"),
+  Asian_Pac_Islander = c("Asian-Pac-Islander")
+)
+
+# Recode the incomer column using the recode function
+adult$race <- sapply(adult$race, recode_value)
+
+# Convert the recoded native_country to a factor
+adult$race <- factor(adult$race, levels = names(new_levels))
+levels(adult$race)
+
+# get the average of all remaining missing values
+replace_missing_with_average <- function(data) {
+  for (col_name in names(data)) {
+    # Check if the column is numeric
+    if (is.numeric(data[[col_name]])) {
+      # Calculate the average, excluding NA values
+      column_mean <- mean(data[[col_name]], na.rm = TRUE)
+      # Replace NA values with the column's average
+      data[[col_name]][is.na(data[[col_name]])] <- column_mean
+    }
+  }
+  return(data)
+}
+
+# Call the replace function:
+adult <- replace_missing_with_average(adult)
+
+# Make sure categorical variables are factored
+adult[] <-
+  lapply(adult, function(x) {
+    if (is.character(x)) {
+      as.factor(x)
+    } else {
+      x
+    }
+  })
+
+# Review changes
+adult
+```
+
+```{r capital_gain_loss}
+library(ggmosaic)
+library(ggthemes)
+
+adult <- adult %>%
+  mutate(invested = ifelse(capital_gain > 0 | capital_loss > 0, 1, 0))
+
+adult$invested <- factor(adult$invested,
+  levels = c("0", "1"),
+  labels = c("Not_Invested", "Invested")
+)
+
+invest_df <- adult %>% select(invested, capital_gain, capital_loss, income)
+freq(data = invest_df, input = c("invested"))
+
+# Create the basic mosaic plot
+p <- ggplot(data = invest_df) +
+  geom_mosaic(aes(weight = 1, x = product(invested), fill = income)) +
+  theme_minimal()
+
+# Percentage for each quadrant
+counts <- invest_df %>%
+  count(income, invested) %>%
+  mutate(perc = n / sum(n))
+print(counts)
+
+# Mosaic plot
+p <- ggplot(data = adult) +
+  geom_mosaic(aes(weight = 1, x = product(invested), fill = income),
+    show.legend = FALSE
+  ) +
+  theme_minimal()
+
+# Calculate the counts and percentages
+counts <- adult %>%
+  count(income, invested) %>%
+  mutate(perc = n / sum(n) * 100)
+
+counts$label_x <- c(0.5, .95, 0.5, .95)
+counts$label_y <- c(0.4, 0.25, 0.9, 0.7)
+
+# Add the text using geom_text() and the manually estimated positions
+p + geom_text(
+  data = counts,
+  aes(x = label_x, y = label_y, label = paste0(round(perc, 2), "%")),
+  size = 4,
+  color = "white"
+)
+
+ggplot(adult, aes(x = invested, fill = income)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(y = "Percentage")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5))+
+  ggtitle('Earnings by Investment (Percentage')
+```
+
+
+```{r create_train_test}
+# Set a seed for reproducibility
+set.seed(1234)
+
+# Calculate the number of rows to select
+sample_size <- round(0.8 * nrow(adult))
+
+# Create a random sample of indices
+index <- sample(1:nrow(adult), size = sample_size, replace = FALSE)
+
+# Create the training set using the selected indices
+training_set <- adult[index, ]
+testing_set <- adult[-index, ]
+
+nrow(training_set)
+nrow(testing_set)
+
+testing_set
+```
+
